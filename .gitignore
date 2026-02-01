@@ -1,0 +1,7 @@
+node_modules/
+.env
+validators.json
+dist/
+*.log
+.DS_Store
+*.tsbuildinfo
