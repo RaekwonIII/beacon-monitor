@@ -1,5 +1,6 @@
 {
   "name": "beacon-monitor",
+  "module": "index.ts",
   "version": "1.0.0",
   "description": "Validator monitor for Ethereum beacon nodes",
   "type": "module",

@@ -26,7 +26,7 @@ export async function fetchValidators(
   const queryParams: string[] = [];
   const uniquePubkeys = [...new Set(pubkeys)];
 
-  queryParams.push(`${STATUS_PARAM}=active_ongoing,active_exiting,active_slashed,exited_unslashed,exited_slashed,withdrawal_possible,withdrawal_done,status=pending_initialized,status=pending_queued`);
+  queryParams.push(`${STATUS_PARAM}=active_ongoing,active_exiting,active_slashed,exited_unslashed,exited_slashed,withdrawal_possible,withdrawal_done,pending_initialized,pending_queued`);
   uniquePubkeys.forEach((pubkey) => {
     queryParams.push(`${ID_PARAM}=${pubkey}`);
   });
@@ -34,7 +34,7 @@ export async function fetchValidators(
   const queryString = queryParams.join(PARAM_DELIMITER);
   const url = `${baseUrl}/${BEACON_API_VERSION}/beacon/states/${STATE_ID}/validators?${queryString}`;
 
-  console.log(`🔍 Fetching validators from: ${baseUrl}`);
+  console.log(`🔍 Fetching validators. Request url: ${url}`);
 
   try {
     const response = await fetch(url, {

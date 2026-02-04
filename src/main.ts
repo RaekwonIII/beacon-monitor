@@ -4,10 +4,11 @@ import {
   loadValidatorStatuses,
   saveValidatorStatuses,
   processFetchedValidators,
+  filterPendingOnly,
 } from "./storage";
 import { fetchValidators } from "./beacon-client";
 
-const POLL_INTERVAL_SECONDS = 43200;
+const POLL_INTERVAL_MILLISECONDS = 720 * 1000;
 
 function validatePubkey(pubkey: string): boolean {
   const trimmed = pubkey.toLowerCase().trim();
@@ -33,24 +34,19 @@ function extractPubkeysFromCLI(args: string[]): string[] {
 beacon-monitor - Ethereum Beacon Node Validator Monitor
 
 Usage:
-  Provide validator public keys to monitor their activation status.
+  Provide validator public keys to monitor their activation status
 
 Environment Variable:
   BEACON_NODE_URL - Required: Protocol + host + port of beacon node
 
 Examples:
-  Single validator:
-    --pubkey 0xabc... --pubkey 0xdef...
+   bun src/main.ts 0x... 0x... 0x...
 
   With environment variable:
-    BEACON_NODE_URL=http://localhost:5052 --pubkey 0xabc...
+    BEACON_NODE_URL=http://localhost:5052 bun src/main.ts 0x... 0x... 0x...
 
   Without pubkeys (monitors previously stored pending validators):
-    BEACON_NODE_URL=http://localhost:5052
-
-Options:
-  --help, -h           Show this help information
-  --pubkey, -p <hex>   Validator public key to monitor
+    BEACON_NODE_URL=http://localhost:5052 bun src/main.ts 
 
 If you provide a BEACON_NODE_URL but no pubkeys, the system will only monitor
 those public keys that have been previously registered as pending in the validators.json file.
@@ -67,10 +63,7 @@ those public keys that have been previously registered as pending in the validat
   return pubkeys;
 }
 
-function findBeaconNodeConnection(baseUrl?: string): string {
-  if (baseUrl) {
-    return baseUrl;
-  }
+function findBeaconNodeConnection(): string {
 
   const envUrl = process.env.BEACON_NODE_URL;
   if (envUrl) {
@@ -83,16 +76,16 @@ function findBeaconNodeConnection(baseUrl?: string): string {
   );
 }
 
-function formatTimestamp(timestamp: number): string {
+function nextEpochTime(): string {
   const now = new Date();
-  const nextEpoch = new Date(now.getTime() + POLL_INTERVAL_SECONDS * 1000);
+  const nextEpoch = new Date(now.getTime() + POLL_INTERVAL_MILLISECONDS);
   return nextEpoch.toLocaleTimeString();
 }
 
 export async function main(): Promise<void> {
   try {
     const args = process.argv.slice(2);
-    const pubkeys = extractPubkeysFromCLI(args);
+    let pubkeys = extractPubkeysFromCLI(args);
 
     const beaconUrl = findBeaconNodeConnection();
 
@@ -103,20 +96,14 @@ export async function main(): Promise<void> {
 
     if (pubkeys.length > 0) {
       console.log(`📋 Initial pubkeys: ${pubkeys.length}`);
-      console.log("🔍 Searching for validators with status: pending_queued");
+      console.log("🔍 Searching for last stored validators state");
 
       for (const pubkey of pubkeys) {
-        const exists = storedState.hasOwnProperty(pubkey);
-        if (!exists) {
+        if (!storedState.hasOwnProperty(pubkey)) {
           console.log(`✨ Added new validator to monitoring: ${pubkey}`);
+          storedState[pubkey] = "pending_queued";
         }
-        storedState[pubkey] = "pending_queued";
       }
-
-      const totalPending = Object.values(storedState).filter(
-        (status) => status === "pending_queued",
-      ).length;
-      console.log(`📈 Total pending validators to monitor: ${totalPending}`);
 
       saveValidatorStatuses(storedState);
     } else {
@@ -126,12 +113,15 @@ export async function main(): Promise<void> {
     while (true) {
       try {
         storedState = await loadValidatorStatuses();
+        pubkeys = filterPendingOnly(storedState);
+        console.log(`📈 Total pending validators to monitor: ${pubkeys.length}`);
         console.log("⏱️  Polling for new validator activations...");
         const response = await fetchValidators(
           beaconUrl,
-          Object.keys(storedState),
+          pubkeys,
         );
         const newStoredState = processFetchedValidators(response, storedState);
+        saveValidatorStatuses(newStoredState);
         if (Object.keys(newStoredState).length === 0) {
           console.log("✅ All pending validators have been activated!");
           console.log("💾 Clearing validators.json");
@@ -139,9 +129,9 @@ export async function main(): Promise<void> {
           process.exit(0);
         }
 
-        console.log("⏱️  Next poll: 12 minutes");
+        console.log("⏱️  Next poll in 12 minutes: ", nextEpochTime());
         await new Promise((resolve) =>
-          setTimeout(resolve, POLL_INTERVAL_SECONDS * 1000),
+          setTimeout(resolve, POLL_INTERVAL_MILLISECONDS),
         );
       } catch (error) {
         console.error(
@@ -149,7 +139,7 @@ export async function main(): Promise<void> {
         );
         console.log("⏱️  Waiting for next interval...");
         await new Promise((resolve) =>
-          setTimeout(resolve, POLL_INTERVAL_SECONDS * 1000),
+          setTimeout(resolve, POLL_INTERVAL_MILLISECONDS),
         );
       }
     }

@@ -1,4 +1,4 @@
-import { ValidatorResponse, StoredState } from "./types";
+import { ValidatorResponse, StoredState, Status } from "./types";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -61,16 +61,10 @@ export function processFetchedValidators(
     }
   }
 
-  const filteredState = filterPendingOnly(newFetchedState);
-
-  return filteredState;
+  return newFetchedState;
 }
 
-export function filterPendingOnly(storedState: StoredState): StoredState {
-  return Object.entries(storedState)
-    .filter(([_, status]) => status === "pending_queued")
-    .reduce((filtered, [pubkey, status]) => {
-      filtered[pubkey] = status;
-      return filtered;
-    }, {} as StoredState);
+export function filterPendingOnly(storedState: StoredState): string[] {
+
+  return Object.entries(storedState).filter(([_, status]) => status !== "active_ongoing").map(([pubkey, status]) => pubkey)
 }
