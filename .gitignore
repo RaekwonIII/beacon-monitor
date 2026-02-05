@@ -1,6 +1,7 @@
 node_modules/
 .env
 validators.json
+keyshares.json
 dist/
 *.log
 .DS_Store
