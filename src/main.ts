@@ -74,6 +74,32 @@ those public keys that have been previously registered as pending in the validat
   return pubkeys;
 }
 
+function findSubgraphEndpoint(): string {
+
+  const subgraphEndpoint = process.env.SUBGRAPH_ENDPOINT;
+  if (subgraphEndpoint) {
+    return subgraphEndpoint;
+  }
+
+  throw new Error(
+    "Error: SUBGRAPH_ENDPOINT environment variable is required. " +
+      "Please set it and try again. Example: SUBGRAPH_ENDPOINT=http://api.graph...",
+  );
+}
+
+function findSubgraphApiKey(): string {
+
+  const apiKey = process.env.SUBGRAPH_API_KEY;
+  if (apiKey) {
+    return apiKey;
+  }
+
+  throw new Error(
+    "Error: SUBGRAPH_API_KEY environment variable is required. " +
+      "Please set it and try again. Example: SUBGRAPH_API_KEY=1234354525",
+  );
+}
+
 function findBeaconNodeConnection(): string {
 
   const envUrl = process.env.BEACON_NODE_URL;
@@ -117,6 +143,8 @@ async function initializeSSV(): Promise<SSVSDK> {
   try {
     const privateKey = findPrivateKey();
     const chain = findChain();
+    const subgraphEndpoint = findSubgraphEndpoint();
+    const subgraphApiKey = findSubgraphApiKey();
     
     // Setup viem clients
     const transport = http();
@@ -137,6 +165,12 @@ async function initializeSSV(): Promise<SSVSDK> {
     const sdk = new SSVSDK({
       publicClient,
       walletClient,
+      extendedConfig: {
+        subgraph: {
+          apiKey: subgraphApiKey,
+          endpoint: subgraphEndpoint,
+        }
+      }
     });
     
     console.log("✅ SSV SDK initialized successfully");
