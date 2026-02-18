@@ -6,18 +6,14 @@ import {
   processFetchedValidators,
   filterPendingOnly,
 } from "./storage";
+import { findEnvVariable, initializeSSV } from "./utils";
 import { fetchValidators } from "./beacon-client";
-import { SSVSDK, chains } from '@ssv-labs/ssv-sdk'
-import { createPublicClient, createWalletClient, http } from 'viem'
-import { privateKeyToAccount } from 'viem/accounts'
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const KEYSHARES_FILE = path.join(__dirname, "..", "keyshares.json");
-
-const POLL_INTERVAL_MILLISECONDS = 720 * 1000;
+export const __dirname = path.dirname(__filename);
+const EPOCH_LENGHT_MILLISECONDS = 32 * 12 * 1000;
 
 function validatePubkey(pubkey: string): boolean {
   const trimmed = pubkey.toLowerCase().trim();
@@ -74,120 +70,20 @@ those public keys that have been previously registered as pending in the validat
   return pubkeys;
 }
 
-function findSubgraphEndpoint(): string {
-
-  const subgraphEndpoint = process.env.SUBGRAPH_ENDPOINT;
-  if (subgraphEndpoint) {
-    return subgraphEndpoint;
-  }
-
-  throw new Error(
-    "Error: SUBGRAPH_ENDPOINT environment variable is required. " +
-      "Please set it and try again. Example: SUBGRAPH_ENDPOINT=http://api.graph...",
-  );
-}
-
-function findSubgraphApiKey(): string {
-
-  const apiKey = process.env.SUBGRAPH_API_KEY;
-  if (apiKey) {
-    return apiKey;
-  }
-
-  throw new Error(
-    "Error: SUBGRAPH_API_KEY environment variable is required. " +
-      "Please set it and try again. Example: SUBGRAPH_API_KEY=1234354525",
-  );
-}
-
-function findBeaconNodeConnection(): string {
-
-  const envUrl = process.env.BEACON_NODE_URL;
-  if (envUrl) {
-    return envUrl;
-  }
-
-  throw new Error(
-    "Error: BEACON_NODE_URL environment variable is required. " +
-      "Please set it and try again. Example: BEACON_NODE_URL=http://localhost:5052",
-  );
-}
-
-function findPrivateKey(): string {
-  const privateKey = process.env.PRIVATE_KEY;
-  if (privateKey) {
-    return privateKey;
-  }
-
-  throw new Error(
-    "Error: PRIVATE_KEY environment variable is required. " +
-      "Please set it and try again.",
-  );
-}
-
-function findChain(): typeof chains.mainnet | typeof chains.hoodi {
-  const chainEnv = process.env.CHAIN;
-  if (chainEnv === 'hoodi') {
-    return chains.hoodi;
-  }
-  return chains.mainnet;
-}
-
 function nextEpochTime(): string {
   const now = new Date();
-  const nextEpoch = new Date(now.getTime() + POLL_INTERVAL_MILLISECONDS);
+  const nextEpoch = new Date(now.getTime() + EPOCH_LENGHT_MILLISECONDS);
   return nextEpoch.toLocaleTimeString();
 }
 
-async function initializeSSV(): Promise<SSVSDK> {
+async function loadKeyshares(keysharesFile: string): Promise<any> {
   try {
-    const privateKey = findPrivateKey();
-    const chain = findChain();
-    const subgraphEndpoint = findSubgraphEndpoint();
-    const subgraphApiKey = findSubgraphApiKey();
-    
-    // Setup viem clients
-    const transport = http();
-    const publicClient = createPublicClient({
-      chain,
-      transport,
-    });
-    
-    const formattedPrivateKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-    const account = privateKeyToAccount(formattedPrivateKey as `0x${string}`);
-    const walletClient = createWalletClient({
-      account,
-      chain,
-      transport,
-    });
-    
-    // Initialize SDK with viem clients
-    const sdk = new SSVSDK({
-      publicClient,
-      walletClient,
-      extendedConfig: {
-        subgraph: {
-          apiKey: subgraphApiKey,
-          endpoint: subgraphEndpoint,
-        }
-      }
-    });
-    
-    console.log("✅ SSV SDK initialized successfully");
-    return sdk;
-  } catch (error) {
-    throw new Error(`Failed to initialize SSV SDK: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-async function loadKeyshares(): Promise<any> {
-  try {
-    const fileExists = Bun.file(KEYSHARES_FILE).exists();
+    const fileExists = Bun.file(keysharesFile).exists();
     if (!fileExists) {
       throw new Error("keyshares.json file not found");
     }
 
-    const content = await Bun.file(KEYSHARES_FILE).text();
+    const content = await Bun.file(keysharesFile).text();
     const data = JSON.parse(content);
     
     return data;
@@ -202,9 +98,10 @@ export async function main(): Promise<void> {
     const args = process.argv.slice(2);
     let pubkeys = extractPubkeysFromCLI(args);
 
-    const beaconUrl = findBeaconNodeConnection();
+    const beaconUrl = findEnvVariable(process.env.BEACON_NODE_URL, "BEACON_NODE_URL");
     const sdk = await initializeSSV();
-    const keyshares = await loadKeyshares();
+    const keysharesFile = findEnvVariable(process.env.KEYSHARES_FILE, "KEYSHARES_FILE");
+    const keyshares = await loadKeyshares(keysharesFile);
 
     console.log("📊 beacon-monitor starting...");
     console.log("🔗 Beacon node:", beaconUrl);
@@ -286,7 +183,7 @@ export async function main(): Promise<void> {
 
         console.log("⏱️  Next poll in 12 minutes: ", nextEpochTime());
         await new Promise((resolve) =>
-          setTimeout(resolve, POLL_INTERVAL_MILLISECONDS),
+          setTimeout(resolve, EPOCH_LENGHT_MILLISECONDS),
         );
       } catch (error) {
         console.error(
@@ -294,7 +191,7 @@ export async function main(): Promise<void> {
         );
         console.log("⏱️  Waiting for next interval...");
         await new Promise((resolve) =>
-          setTimeout(resolve, POLL_INTERVAL_MILLISECONDS),
+          setTimeout(resolve, EPOCH_LENGHT_MILLISECONDS),
         );
       }
     }

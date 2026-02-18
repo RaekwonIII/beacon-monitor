@@ -6,8 +6,6 @@ const PARAM_DELIMITER = "&";
 const STATUS_PARAM = "status";
 const ID_PARAM = "id";
 
-const EPOCH_DURATION_SECONDS = 43200;
-
 interface FetchedValidators {
   [pubkey: string]: {
     status: Status;
