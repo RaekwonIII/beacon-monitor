@@ -6,9 +6,10 @@ async function loadKeystores(keystoreDir: string): Promise<string[]> {
     const files = await readdir(keystoreDir);
     const keystores: string[] = [];
     for (const file of files) {
-      const content = await Bun.file(`${keystoreDir}/${file}`).text();
-      const data = JSON.stringify(content);
-      keystores.push(data);
+      if (file.startsWith("keystore")) {
+        const content = await Bun.file(`${keystoreDir}/${file}`).text();
+        keystores.push(content);
+      }
     }
     return keystores;
   } catch (error) {
@@ -29,6 +30,10 @@ async function writeKeyshares(keysharesFile: string, keyshares: string) {
 }
 
 async function generate(): Promise<void> {
+  const operatorIds = findEnvVariable(
+    process.env.OPERATOR_IDS,
+    "OPERATOR_IDS",
+  ).split(",");
   const keysharesFile = findEnvVariable(
     process.env.KEYSHARES_FILE,
     "KEYSHARES_FILE",
@@ -47,7 +52,6 @@ async function generate(): Promise<void> {
   const sdk = await initializeSSV();
 
   let nonce = Number(await sdk.api.getOwnerNonce({ owner: ownerAddress }));
-  let operatorIds = ["1", "2", "3", "4"];
   let operators = await sdk.api.getOperators({ operatorIds });
 
   const keysharesPayload = await sdk.utils.generateKeyShares({

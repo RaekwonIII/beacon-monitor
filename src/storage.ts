@@ -64,7 +64,6 @@ export function processFetchedValidators(
   return newFetchedState;
 }
 
-export function filterPendingOnly(storedState: StoredState): string[] {
-
-  return Object.entries(storedState).filter(([_, status]) => status !== "active_ongoing").map(([pubkey, status]) => pubkey)
+export function filterPendingOnly(storedState: StoredState): `0x${string}`[] {
+  return Object.entries(storedState).filter(([_, status]) => status !== "active_ongoing").map(([pubkey, status]) => pubkey as `0x${string}`)
 }

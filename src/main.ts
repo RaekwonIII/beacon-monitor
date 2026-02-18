@@ -10,65 +10,13 @@ import { findEnvVariable, initializeSSV } from "./utils";
 import { fetchValidators } from "./beacon-client";
 import path from "path";
 import { fileURLToPath } from "url";
+import { KeyShareMapping, KeyShareObj } from "./types";
+import { KeySharesPayload } from "@ssv-labs/ssv-sdk/dist/libs/ssv-keys/KeyShares/KeySharesData/KeySharesPayload";
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 const EPOCH_LENGHT_MILLISECONDS = 32 * 12 * 1000;
 
-function validatePubkey(pubkey: string): boolean {
-  const trimmed = pubkey.toLowerCase().trim();
-
-  if (!trimmed.startsWith("0x")) {
-    return false;
-  }
-
-  const hexPart = trimmed.substring(2);
-  return /^[0-9a-f]+$/.test(hexPart);
-}
-
-function extractPubkeysFromCLI(args: string[]): string[] {
-  const pubkeys: string[] = [];
-
-  for (const arg of args) {
-    if (arg.match(/^--?p$/) || arg.match(/^--?pubkey$/)) {
-      return [];
-    }
-
-    if (arg.match(/^--?h$/) || arg.match(/^--help$/)) {
-      console.log(`
-beacon-monitor - Ethereum Beacon Node Validator Monitor
-
-Usage:
-  Provide validator public keys to monitor their activation status
-
-Environment Variable:
-  BEACON_NODE_URL - Required: Protocol + host + port of beacon node
-  PRIVATE_KEY - Required: Private key for wallet to register validators
-  CHAIN - Optional: Network chain (mainnet, sepolia) - default: mainnet
-
-Examples:
-   bun src/main.ts 0x... 0x... 0x...
-
-  With environment variables:
-    BEACON_NODE_URL=http://localhost:5052 PRIVATE_KEY=0x... bun src/main.ts 0x... 0x... 0x...
-
-  Without pubkeys (monitors previously stored pending validators):
-    BEACON_NODE_URL=http://localhost:5052 PRIVATE_KEY=0x... bun src/main.ts 
-
-If you provide a BEACON_NODE_URL but no pubkeys, the system will only monitor
-those public keys that have been previously registered as pending in the validators.json file.
-`);
-
-      process.exit(0);
-    }
-
-    if (validatePubkey(arg)) {
-      pubkeys.push(arg);
-    }
-  }
-
-  return pubkeys;
-}
 
 function nextEpochTime(): string {
   const now = new Date();
@@ -76,7 +24,7 @@ function nextEpochTime(): string {
   return nextEpoch.toLocaleTimeString();
 }
 
-async function loadKeyshares(keysharesFile: string): Promise<any> {
+async function loadKeyshares(keysharesFile: string): Promise<KeyShareObj[]> {
   try {
     const fileExists = Bun.file(keysharesFile).exists();
     if (!fileExists) {
@@ -85,23 +33,36 @@ async function loadKeyshares(keysharesFile: string): Promise<any> {
 
     const content = await Bun.file(keysharesFile).text();
     const data = JSON.parse(content);
-    
+
     return data;
   } catch (error) {
     console.error("Failed to read keyshares.json:", error);
-    throw new Error("Failed to load keyshares. Please check keyshares.json exists and is valid.");
+    throw new Error(
+      "Failed to load keyshares. Please check keyshares.json exists and is valid.",
+    );
   }
 }
 
 export async function main(): Promise<void> {
   try {
-    const args = process.argv.slice(2);
-    let pubkeys = extractPubkeysFromCLI(args);
-
-    const beaconUrl = findEnvVariable(process.env.BEACON_NODE_URL, "BEACON_NODE_URL");
+    const beaconUrl = findEnvVariable(
+      process.env.BEACON_NODE_URL,
+      "BEACON_NODE_URL",
+    );
     const sdk = await initializeSSV();
-    const keysharesFile = findEnvVariable(process.env.KEYSHARES_FILE, "KEYSHARES_FILE");
+    const keysharesFile = findEnvVariable(
+      process.env.KEYSHARES_FILE,
+      "KEYSHARES_FILE",
+    );
     const keyshares = await loadKeyshares(keysharesFile);
+    const pubkeyToKeyshares = keyshares.reduce<KeyShareMapping>(
+      (acc, keyshare) => {
+        acc[keyshare.publicKey] = keyshare;
+        return acc;
+      },
+      {},
+    );
+    let pubkeys = keyshares.map((k) => k.publicKey);
 
     console.log("📊 beacon-monitor starting...");
     console.log("🔗 Beacon node:", beaconUrl);
@@ -126,55 +87,67 @@ export async function main(): Promise<void> {
 
     while (true) {
       try {
-        storedState = await loadValidatorStatuses();
         pubkeys = filterPendingOnly(storedState);
-        console.log(`📈 Total pending validators to monitor: ${pubkeys.length}`);
-        console.log("⏱️  Polling for new validator activations...");
-        const response = await fetchValidators(
-          beaconUrl,
-          pubkeys,
+        console.log(
+          `📈 Total pending validators to monitor: ${pubkeys.length}`,
         );
-        const newStoredState = processFetchedValidators(response, storedState);
-        saveValidatorStatuses(newStoredState);
-        
+        console.log("⏱️  Polling for new validator activations...");
+        const response = await fetchValidators(beaconUrl, pubkeys);
+        storedState = processFetchedValidators(response, storedState);
+        saveValidatorStatuses(storedState);
+
         // Check for newly activated validators and register them
-        const activatedValidators: string[] = [];
-        for (const [pubkey, status] of Object.entries(newStoredState)) {
-          if (status === "active_ongoing" && storedState[pubkey] !== "active_ongoing") {
-            activatedValidators.push(pubkey);
+        let keysharesToRegister: KeySharesPayload[] = [];
+        for (const [pubkey, status] of Object.entries(storedState)) {
+          // verify if any previously pending key has nowe become active
+          if (
+            status === "active_ongoing" &&
+            storedState[pubkey] !== "active_ongoing"
+          ) {
+            // add these to the set of validators that need to be registered
+            const keysharesPayload = pubkeyToKeyshares[pubkey];
+            if (!keysharesPayload) {
+              console.log(`⚠️  No keyshares found for pubkey: ${pubkey}`);
+              continue;
+            }
+            keysharesToRegister.push(keysharesPayload as KeySharesPayload);
           }
         }
-        
-        if (activatedValidators.length > 0) {
-          console.log(`✅ Found ${activatedValidators.length} activated validators to register`);
-          
-          for (const pubkey of activatedValidators) {
-            try {
-              const keysharesPayload = keyshares[pubkey];
-              if (!keysharesPayload) {
-                console.log(`⚠️  No keyshares found for pubkey: ${pubkey}`);
-                continue;
-              }
-              
-              console.log(`🔄 Registering validator ${pubkey} with SSV network...`);
-              
-              // Register the validator
-              const txnReceipt = await sdk.clusters.registerValidators({
+
+        // if there's any validators that need to be registered
+        if (keysharesToRegister.length > 0) {
+          console.log(
+            `✅ Found ${keysharesToRegister.length} activated validators to register`,
+          );
+
+          try {
+            console.log(
+              `🔄 Registering ${keysharesToRegister.length} validators with SSV network...`,
+            );
+
+            // Register the validators in bulk
+            const txnReceipt = await sdk.clusters
+              .registerValidators({
                 args: {
-                  keyshares: keysharesPayload,
+                  keyshares: keysharesToRegister,
                   depositAmount: 100000n, // Placeholder - actual deposit amount should be set based on requirements
                 },
-              }).then(tx => tx.wait());
-              
-              console.log(`✅ Successfully registered validator ${pubkey}`);
-            } catch (regError) {
-              console.error(`❌ Failed to register validator ${pubkey}:`, 
-                regError instanceof Error ? regError.message : String(regError));
-            }
+              })
+              .then((tx) => tx.wait());
+
+            console.log(
+              `✅ Successfully registered validators, tx hash: ${txnReceipt.transactionHash}`,
+            );
+          } catch (regError) {
+            console.error(
+              `❌ Failed to register validators:`,
+              regError instanceof Error ? regError.message : String(regError),
+            );
           }
         }
-        
-        if (Object.keys(newStoredState).length === 0) {
+
+        // if after this last polling there are no remaining non-activated validators, exit
+        if (filterPendingOnly(storedState).length === 0) {
           console.log("✅ All pending validators have been activated!");
           console.log("💾 Clearing validators.json");
           saveValidatorStatuses({});

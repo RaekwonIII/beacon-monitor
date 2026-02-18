@@ -32,3 +32,13 @@ export interface ValidatorResponse {
 export interface StoredState {
   [pubkey: string]: Status;
 }
+
+export interface KeyShareObj {
+  sharesData: `0x${string}`
+  publicKey: `0x${string}`
+  operatorIds: number[]
+}
+
+export interface KeyShareMapping {
+  [key: string]: KeyShareObj;
+}
