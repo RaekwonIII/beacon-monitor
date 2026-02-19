@@ -65,14 +65,6 @@ async function generate(): Promise<void> {
 
   await writeKeyshares(keysharesFile, JSON.stringify(keysharesPayload));
   console.log(JSON.stringify(keysharesPayload));
-  // const txnReceipt = await sdk.clusters.registerValidators({
-  //   args: {
-  //     keyshares: keysharesPayload,
-  //     depositAmount: 100000n, // Placeholder - actual deposit amount should be set based on requirements
-  //   },
-  // }).then(tx => tx.wait());
-
-  // console.log(txnReceipt.transactionHash)
 }
 
 await generate();

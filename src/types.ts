@@ -42,3 +42,15 @@ export interface KeyShareObj {
 export interface KeyShareMapping {
   [key: string]: KeyShareObj;
 }
+
+export interface DepositFileItem {
+        pubkey: string;
+        withdrawal_credentials: string;
+        amount: number
+        signature: string;
+        deposit_message_root: string;
+        deposit_data_root: string;
+        fork_version: string;
+        network_name: "hoodi" | "mainnet" | "sepolia";
+        deposit_cli_version: string;
+}
