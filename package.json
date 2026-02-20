@@ -9,7 +9,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "bun --watch src/main.ts",
+    "monitor": "bun --watch src/main.ts",
+    "generate": "bun --watch src/generate.ts",
+    "deposit": "bun --watch src/deposit.ts",
     "start": "node dist/main.js"
   },
   "keywords": [
